@@ -23,6 +23,7 @@ find_package(catkin REQUIRED COMPONENTS message_generation roscpp nav_msgs geome
 add_message_files(
   FILES
   BumperState.msg
+  WheelVelocities.msg
 )
 #uncomment if you have defined services
 #add_service_files(
@@ -57,7 +58,6 @@ endif()
 
 add_executable(RosAria RosAria.cpp LaserPublisher.cpp)
 add_dependencies(RosAria rosaria_gencfg)
-add_dependencies(RosAria rosaria_gencpp)
 
 target_link_libraries(RosAria ${catkin_LIBRARIES} ${Boost_LIBRARIES} Aria pthread dl rt)
 set_target_properties(RosAria PROPERTIES COMPILE_FLAGS "-fPIC")

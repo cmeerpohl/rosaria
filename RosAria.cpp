@@ -14,6 +14,7 @@
 #include <sensor_msgs/point_cloud_conversion.h> // can optionally publish sonar as new type pointcloud2
 #include "nav_msgs/Odometry.h"
 #include "rosaria/BumperState.h"
+#include "rosaria/WheelVelocities.h"
 #include "tf/tf.h"
 #include "tf/transform_listener.h"  //for tf::getPrefixParam
 #include <tf/transform_broadcaster.h>
@@ -56,6 +57,7 @@ class RosAriaNode
   public:
     int Setup();
     void cmdvel_cb( const geometry_msgs::TwistConstPtr &);
+    void cmdvel2_cb( const rosaria::WheelVelocitiesConstPtr &);
     void cmdvel_watchdog(const ros::TimerEvent& event);
     //void cmd_enable_motors_cb();
     //void cmd_disable_motors_cb();
@@ -68,6 +70,7 @@ class RosAriaNode
   protected:
     ros::NodeHandle n;
     ros::Publisher pose_pub;
+    ros::Publisher vel2_pub;
     ros::Publisher bumpers_pub;
     ros::Publisher sonar_pub;
     ros::Publisher sonar_pointcloud2_pub;
@@ -83,6 +86,7 @@ class RosAriaNode
     bool published_motors_state;
 
     ros::Subscriber cmdvel_sub;
+    ros::Subscriber cmdvel2_sub;
 
     ros::ServiceServer enable_srv;
     ros::ServiceServer disable_srv;
@@ -100,6 +104,7 @@ class RosAriaNode
     ArLaserConnector *laserConnector;
     ArRobot *robot;
     nav_msgs::Odometry position;
+    rosaria::WheelVelocities vel2;
     rosaria::BumperState bumpers;
     ArPose pos;
     ArFunctorC<RosAriaNode> myPublishCB;
@@ -315,6 +320,7 @@ RosAriaNode::RosAriaNode(ros::NodeHandle nh) :
   // subscribers when they subscribe).
   // See ros::NodeHandle API docs.
   pose_pub = n.advertise<nav_msgs::Odometry>("pose",1000);
+  vel2_pub = n.advertise<rosaria::WheelVelocities>("vel2",1000);
   bumpers_pub = n.advertise<rosaria::BumperState>("bumper_state",1000);
   sonar_pub = n.advertise<sensor_msgs::PointCloud>("sonar", 50, 
       boost::bind(&RosAriaNode::sonarConnectCb, this),
@@ -512,6 +518,8 @@ int RosAriaNode::Setup()
   // subscribe to command topics
   cmdvel_sub = n.subscribe( "cmd_vel", 1, (boost::function <void(const geometry_msgs::TwistConstPtr&)>)
       boost::bind(&RosAriaNode::cmdvel_cb, this, _1 ));
+  cmdvel2_sub = n.subscribe( "cmd_vel2", 1, (boost::function <void(const rosaria::WheelVelocitiesConstPtr&)>)
+        boost::bind(&RosAriaNode::cmdvel2_cb, this, _1 ));
 
   // register a watchdog for cmd_vel timeout
   double cmdvel_timeout_param = 0.6;
@@ -553,6 +561,11 @@ void RosAriaNode::publish()
     (double)position.twist.twist.linear.y,
     (double)position.twist.twist.angular.z
   );
+
+  vel2.header.stamp = ros::Time::now();
+  vel2.vel_right = robot->getRightVel()/1000.0;
+  vel2.vel_left = robot->getLeftVel()/1000.0;
+  vel2_pub.publish(vel2);
 
   // publishing transform odom->base_link
   odom_trans.header.stamp = ros::Time::now();
@@ -728,6 +741,19 @@ RosAriaNode::cmdvel_cb( const geometry_msgs::TwistConstPtr &msg)
   robot->unlock();
   ROS_DEBUG("RosAria: sent vels to to aria (time %f): x vel %f mm/s, y vel %f mm/s, ang vel %f deg/s", veltime.toSec(),
     (double) msg->linear.x * 1e3, (double) msg->linear.y * 1e3, (double) msg->angular.z * 180/M_PI);
+}
+
+void
+RosAriaNode::cmdvel2_cb( const rosaria::WheelVelocitiesConstPtr &msg)
+{
+  veltime = ros::Time::now();
+  ROS_INFO( "new wheel velocities: [right:%0.2f, left:%0.2f](%0.3f)", msg->vel_right*1e3, msg->vel_left*1e3, veltime.toSec() );
+
+  robot->lock();
+  robot->setVel2(msg->vel_left*1e3,msg->vel_right*1e3);
+  robot->unlock();
+  ROS_DEBUG("RosAria: sent wheel velocities to Aria (time %f): left vel %f mm/s, right vel %f mm/s", veltime.toSec(),
+    (double) msg->vel_left*1e3, (double) msg->vel_right*1e3);
 }
 
 void RosAriaNode::cmdvel_watchdog(const ros::TimerEvent& event)
